@@ -4,57 +4,31 @@
 [RequireComponent(typeof(CircleCollider2D))]
 public class Node : MonoBehaviour
 {
+    #region Variables
+    [SerializeField] private bool m_movable = true;
 
-    public bool canMove = true;
-
-    private bool lastCanMove;
     private Chain chain;
 
-    private bool one_click = false;
-    private float timer_for_double_click;
+    public bool Movable { get => m_movable;}
+    #endregion
 
-
-    void Start()
+    private void Start()
     {
         chain = Chain.singleton;
-        lastCanMove = canMove;
     }
 
-    void Update()
+    public void OnMovableChanged()
     {
-        if (canMove != lastCanMove)
-        {
-            GetComponent<Renderer>().material.color = (canMove) ? Color.green : Color.red;
-            chain.NodeMovementChange(this);
-            lastCanMove = canMove;
-        }
-        if (one_click)
-        {
-            if ((Time.time - timer_for_double_click) > 0.33)
-            {
-                one_click = false;
-            }
-        }
+        GetComponent<Renderer>().material.color = (Movable) ? Color.green : Color.red;
+        chain.OnNodeMovableChange(this);
     }
 
-    void OnMouseDown()
+    private void OnMouseDrag()
     {
-        if (!one_click)
+        if (!Movable)
         {
-            one_click = true;
-            timer_for_double_click = Time.time;
+            return;
         }
-        else
-        {
-            one_click = false;
-            canMove = !canMove;
-        }
-
-
-    }
-
-    void OnMouseDrag()
-    {
         Vector3 pos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
         pos.z = 0;
         transform.position = pos;

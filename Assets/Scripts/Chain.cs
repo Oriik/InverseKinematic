@@ -1,164 +1,176 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEngine;
 
 [RequireComponent(typeof(LineRenderer))]
 public class Chain : MonoBehaviour
 {
+    #region Variables
     public static Chain singleton;
 
-    public List<Node> nodes = new List<Node>(); //liste de tous les nodes
-    private Dictionary<Node, Vector3> fixedNodesPositions; // positions des nodes fixes
-    private List<float> distances;
+    [SerializeField] private List<Node> m_nodes = new List<Node>();
+    [SerializeField] private float m_constraintAngleDegree = 30;
 
-    private LineRenderer line;
-
-    public float contrainteAngleDegree = 30;
-    private float m_contrainteAngleDegree;
-    private float contrainteAngleRadiant;
-
+    private Dictionary<Node, Vector3> m_fixedNodesPositions;
+    private List<float> m_distances;
+    private float m_constraintAngleRadiant;
+    private LineRenderer m_line;
+    #endregion
 
     private void Awake()
     {
         if (singleton != null)
         {
-            Debug.Log("Plus d'une instance de Chain");
+            Debug.LogError("More than one instance");
+            Destroy(singleton);
         }
         singleton = this;
     }
 
-    public void NodeMovementChange(Node node)
+    void Start()
     {
-        if (fixedNodesPositions.ContainsKey(node))
+        m_fixedNodesPositions = new Dictionary<Node, Vector3>();
+        SetRadiantAngle();
+        m_line = GetComponent<LineRenderer>();
+        m_line.startWidth = 0.1f;
+        m_line.endWidth = 0.1f;
+        SetInitDistance();
+        DrawLine();
+    }
+
+    public void OnNodeMovableChange(Node node)
+    {
+        if (m_fixedNodesPositions.ContainsKey(node))
         {
-            fixedNodesPositions.Remove(node);
+            m_fixedNodesPositions.Remove(node);
         }
         else
         {
-            fixedNodesPositions.Add(node, node.transform.position);
+            m_fixedNodesPositions.Add(node, node.transform.position);
         }
     }
 
-    void Start()
+    public void SetRadiantAngle()
     {
-        fixedNodesPositions = new Dictionary<Node, Vector3>();
-
-        m_contrainteAngleDegree = contrainteAngleDegree;
-        contrainteAngleRadiant = (Mathf.PI / 180) * contrainteAngleDegree;      
-
-        line = GetComponent<LineRenderer>();
-        line.startWidth = 0.1f;
-        line.endWidth = 0.1f;
-
-        initDistance();
-
-        DrawLine();
-
+        m_constraintAngleRadiant = (Mathf.PI / 180) * m_constraintAngleDegree;
     }
 
-    void Update()
+    private void SetInitDistance()
     {
-        if(m_contrainteAngleDegree != contrainteAngleDegree)
+        m_distances = new List<float>();
+        for (int i = 0; i < m_nodes.Count - 1; i++)
         {
-            m_contrainteAngleDegree = contrainteAngleDegree;
-            contrainteAngleRadiant = (Mathf.PI / 180) * contrainteAngleDegree;
+            m_distances.Add(Vector3.Distance(m_nodes[i].transform.position, m_nodes[i + 1].transform.position));
         }
     }
-    private void initDistance()
-    {
-        distances = new List<float>();
-        for (int i = 0; i < nodes.Count - 1; i++)
-        {
-            distances.Add(Vector3.Distance(nodes[i].transform.position, nodes[i + 1].transform.position));
-        }
-    }
-
 
     public void Move(Node node)
     {
+        List<Node> nodesToMove = MovableChainFromNode(node);
+
         //FABRIK INVERSE KINEMATIC
-
-
-        //Déplacement aller
-        for (int i = 0; i < nodes.Count; i++)
+        //Forward
+        foreach (Node n in nodesToMove)
         {
-            if (nodes[i] != node && nodes[i].canMove)
-            {               
-                MoveNodes(i);
-            }
+            MoveNode(n);
         }
+        nodesToMove.Reverse();
+        m_nodes.Reverse();
+        m_distances.Reverse();
 
-        nodes.Reverse();
-        distances.Reverse();
-      
-        //Déplacement retour
-        for (int i = 0; i < nodes.Count; i++)
+        //Backward
+        foreach (Node n in nodesToMove)
         {
-            if (nodes[i].canMove)
-            {
-                MoveNodes(i);
-            }
+            MoveNode(n);
         }
-        nodes.Reverse();
-        distances.Reverse();
-
+        m_nodes.Reverse();
+        m_distances.Reverse();
         DrawLine();
-
     }
 
-    private void MoveNodes(int i)
-    {        
+    private void MoveNode(Node node)
+    {
+        int i = m_nodes.IndexOf(node);
         if (i > 1)
         {
-            Ray ray = new Ray(nodes[i - 1].transform.position, nodes[i].transform.position - nodes[i - 1].transform.position);
-            nodes[i].transform.position = ray.GetPoint(distances[i - 1]);
-            Vector3 B = Vector3.Normalize(nodes[i].transform.position - nodes[i - 1].transform.position);
-            Vector3 N = Vector3.Normalize(nodes[i - 1].transform.position - nodes[i - 2].transform.position);
+            Transform previousNode = m_nodes[i - 1].transform;
+            Transform currentNode = m_nodes[i].transform;
+            Ray ray = new Ray(previousNode.position, currentNode.position - previousNode.position);
+            currentNode.position = ray.GetPoint(m_distances[i - 1]);
 
-            if (!(Vector3.Dot(N, B) > Mathf.Cos(contrainteAngleRadiant)))
+            Vector3 B = Vector3.Normalize(currentNode.position - previousNode.position);
+            Vector3 N = Vector3.Normalize(previousNode.position - m_nodes[i - 2].transform.position);
+
+            if (!(Vector3.Dot(N, B) > Mathf.Cos(m_constraintAngleRadiant)))
             {
                 float theta = Mathf.Atan2(N.y, N.x);
-                float thetaP = theta + contrainteAngleRadiant;
-                float thetaM = theta - contrainteAngleRadiant;
+                float thetaP = theta + m_constraintAngleRadiant;
+                float thetaM = theta - m_constraintAngleRadiant;
 
                 Vector3 normalP = new Vector3(Mathf.Cos(thetaP), Mathf.Sin(thetaP), 0);
                 Vector3 normalM = new Vector3(Mathf.Cos(thetaM), Mathf.Sin(thetaM), 0);
 
-                Vector3 p1 = nodes[i - 1].transform.position + normalP * distances[i - 1];
-                Vector3 p2 = nodes[i - 1].transform.position + normalM * distances[i - 1];
+                Vector3 p1 = previousNode.position + normalP * m_distances[i - 1];
+                Vector3 p2 = previousNode.position + normalM * m_distances[i - 1];
 
-                if (Vector3.Distance(nodes[i].transform.position, p1) < Vector3.Distance(nodes[i].transform.position, p2))
+                if (Vector3.Distance(currentNode.position, p1) < Vector3.Distance(currentNode.position, p2))
                 {
-                    nodes[i].transform.position = p1;
+                    currentNode.position = p1;
                 }
                 else
                 {
-                    nodes[i].transform.position = p2;
+                    currentNode.position = p2;
                 }
             }
-
         }
-        else if (i==1)
+        else if (i == 1)
         {
-            Ray ray = new Ray(nodes[i - 1].transform.position, nodes[i].transform.position - nodes[i - 1].transform.position);
-            nodes[i].transform.position = ray.GetPoint(distances[i - 1]);
+            Ray ray = new Ray(m_nodes[i - 1].transform.position, m_nodes[i].transform.position - m_nodes[i - 1].transform.position);
+            m_nodes[i].transform.position = ray.GetPoint(m_distances[i - 1]);
         }
     }
-
 
     public void DrawLine()
     {
-
-        Vector3[] tabPos = new Vector3[nodes.Count];
-        for (int i = 0; i < nodes.Count; i++)
+        Vector3[] tabPos = new Vector3[m_nodes.Count];
+        for (int i = 0; i < m_nodes.Count; i++)
         {
-            tabPos[i] = nodes[i].transform.position;
+            tabPos[i] = m_nodes[i].transform.position;
         }
-
-        line.positionCount = tabPos.Length;
-        line.SetPositions(tabPos);
-
-
+        m_line.positionCount = tabPos.Length;
+        m_line.SetPositions(tabPos);
     }
 
+    private List<Node> MovableChainFromNode(Node node)
+    {
+        if (!m_nodes.Contains(node))
+        {
+            return null;
+        }
+        List<Node> result = new List<Node>();
+        bool findNode = false;
+        foreach (Node n in m_nodes)
+        {
+            if (n == node)
+            {
+                findNode = true;
+            }
+            if (n.Movable)
+            {
+                result.Add(n);
+            }
+            else
+            {
+                if (findNode)
+                {
+                    break;
+                }
+                else
+                {
+                    result.Clear();
+                }
+            }
+        }
+
+        return result;
+    }
 }
